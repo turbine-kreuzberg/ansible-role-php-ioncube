@@ -1,0 +1,55 @@
+---
+- name: determine installed PHP version
+  shell: "php -v | head -1 | grep -o 'PHP 5.[0-9]' | sed -r 's/PHP //g'"
+  register: php_version
+  failed_when: "php_version.stdout == ''"
+
+- name: determine PHP extension folder
+  shell: "php -i | grep -o -m 1 'extension_dir .* =' | sed -r 's/extension_dir => //g' | sed -r 's/ =//g'"
+  register: php_extension_dir
+  failed_when: "php_extension_dir.stdout == 'xx'"
+  ignore_errors: true
+
+- name: set facts
+  set_fact: >
+    php_version="{{ php_version.stdout }}"
+    php_extension_dir="{{ php_extension_dir.stdout }}"
+    ioncube_tarfile="ioncube_loaders.tar.gz"
+
+# TODO check for conflicting modules
+#- name: check for conflicting modules (like ...)
+
+- name: download ion-cube-loader 64bit tar archive
+  get_url: >
+    url=http://downloads3.ioncube.com/loader_downloads/ioncube_loaders_lin_x86-64.tar.gz
+    dest=/tmp/{{ ioncube_tarfile }}
+  when: ansible_machine == 'x86_64'
+
+- name: download ion-cube-loader 32bit tar archive
+  get_url: >
+    url=http://downloads3.ioncube.com/loader_downloads/ioncube_loaders_lin_x86.tar.gz
+    dest=/tmp/{{ ioncube_tarfile }}
+  when: ansible_machine == 'i686'
+
+- name: unpack tar archive
+  unarchive:
+    src: "/tmp/{{ ioncube_tarfile }}"
+    dest: "/tmp"
+    copy: no
+
+- name: install appropriate .so module
+  command: cp "/tmp/ioncube/ioncube_loader_lin_{{ php_version }}.so" "{{ php_extension_dir }}/ioncube_loader_lin_{{ php_version }}.so"
+
+- name: add configuration
+  template: >
+    src=ioncube.ini.j2
+    dest=/etc/php5/mods-available/ioncube.ini
+
+- name: link configuration
+  file:
+    src: /etc/php5/mods-available/ioncube.ini
+    dest: /etc/php5/conf.d/05-ioncube.ini
+    state: link
+
+- name: reload apache2
+  service: name=apache2 state=reloaded
